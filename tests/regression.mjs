@@ -128,8 +128,23 @@ assert.deepEqual([...complete6[0].raw.slice(54)], Array.from({ length: 24 }, (_,
 assert.equal(reassembleIp6([first6])[0].proto, 'IPv6 fragment');
 
 
+
+const windowCode = sliceBetween('function peakTimeWindow(events,seconds,minCount){', 'function analyze(){');
+const peakTimeWindow = new Function(windowCode + '; return peakTimeWindow')();
+const burst = peakTimeWindow([
+  { time: 4, key: 443, no: 4 }, { time: 1, key: 80, no: 1 },
+  { time: 3, key: 53, no: 3 }, { time: 2, key: 80, no: 2 }
+], 10, 3);
+assert.equal(burst.count, 4);
+assert.equal(burst.unique, 3);
+assert.deepEqual(burst.packets, [1, 2, 3, 4]);
+const separated = peakTimeWindow([
+  { time: 0, key: 'a', no: 1 }, { time: 181, key: 'b', no: 2 }
+], 180, 2);
+assert.equal(separated.count, 0);
+
 const shaCode = sliceBetween('async function sha256Hex(data){', 'function makeReport(){');
 const sha256Hex = new Function(shaCode + '; return sha256Hex')();
 assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
-console.log('PASS: SHA-256, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+console.log('PASS: SHA-256, sliding windows, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
