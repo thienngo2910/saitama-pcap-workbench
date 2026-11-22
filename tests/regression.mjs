@@ -89,13 +89,44 @@ const savedHttpObjects=[];
 const addRecoveryTest = new Function('recoveries','signature','scanRecoveredFile',recoveryCode+'; return addRecovery')(
   savedHttpObjects, bytes => ({label:'Unknown binary data', ext:'bin'}), scanRecoveredFile
 );
-for (let i=0;i<100;i++) addRecoveryTest(savedHttpObjects, 'dns-'+i+'.bin', 'DNS decoded · base64url', Uint8Array.of(i), [i+1], 'Low priority candidate');
+for (let i=0;i<100;i++) addRecoveryTest(savedHttpObjects, 'dns-'+i+'.bin', 'DNS decoded · base64url', Uint8Array.of(i+100), [i+1], 'Low priority candidate');
 for (let i=0;i<16;i++) addRecoveryTest(savedHttpObjects, 'checking.ps1', 'HTTP response object · application/octet-stream', Uint8Array.of(i+1), [4221+i], 'Complete capture');
 assert.equal(savedHttpObjects.length,100,'keep recovery memory bounded');
 assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object')).length,16,'keep HTTP objects even when earlier DNS results fill the candidate list');
 assert.equal(savedHttpObjects.find(x=>x.kind.startsWith('HTTP response object')).name,'checking.ps1','keep the original HTTP filename');
 assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object'))[1].name,'checking (2).ps1','avoid overwriting repeated object names');
 assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object'))[0].packets[0],4221);
+
+assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object'))[0].duplicateCount, 1);
+
+// Identical reconstructed bytes collapse to one item while preserving provenance.
+const duplicateRows=[];
+const addDuplicateTest=new Function('recoveries','signature','scanRecoveredFile',recoveryCode+'; return addRecovery')(
+  duplicateRows, bytes => ({label:'Test binary',ext:'bin'}), scanRecoveredFile
+);
+const identicalA=Uint8Array.from({length:256},(_,i)=>(i*17)%256);
+const identicalB=identicalA.slice();
+addDuplicateTest(duplicateRows,'first.bin','HTTP response object · application/octet-stream',identicalA,[10,11],'first observation');
+addDuplicateTest(duplicateRows,'renamed.bin','TCP file carving',identicalB,[12,11],'second observation');
+assert.equal(duplicateRows.length,1,'identical bytes are represented once');
+assert.equal(duplicateRows[0].duplicateCount,2,'duplicate occurrence count is retained');
+assert.deepEqual(duplicateRows[0].packets,[10,11,12],'packet provenance is merged and unique');
+assert.deepEqual(duplicateRows[0].sourceNames,['first.bin','renamed.bin'],'alternate names are retained');
+assert.equal(duplicateRows[0].priority,95,'strongest source priority is retained');
+
+// A same-length sampled-fingerprint collision must not collapse different bytes.
+const collisionRows=[];
+const addCollisionTest=new Function('recoveries','signature','scanRecoveredFile',recoveryCode+'; return addRecovery')(
+  collisionRows, bytes => ({label:'Test binary',ext:'bin'}), scanRecoveredFile
+);
+const collisionA=new Uint8Array(1024), collisionB=new Uint8Array(1024);
+collisionB[1]=1; // index 1 is outside the 4-byte-stride sample
+addCollisionTest(collisionRows,'a.bin','TCP file carving',collisionA,[1],'candidate A');
+addCollisionTest(collisionRows,'b.bin','TCP file carving',collisionB,[2],'candidate B');
+assert.equal(collisionRows.length,2,'full byte comparison guards sampled-fingerprint collisions');
+assert.ok(html.includes('ครั้ง xuất hiện') || html.includes('lần xuất hiện'), 'recovery UI exposes duplicate occurrence counts');
+assert.ok(html.includes('sourceNames'), 'recovery metadata retains alternate source names');
+console.log('PASS exact-content recovery deduplication, packet provenance, and collision guard');
 
 
 const riskyScript=scanRecoveredFile('check.ps1','HTTP response object',byteText('$c.DownloadString($u); Invoke-Expression $c'),{ext:'txt',label:'Text'});
