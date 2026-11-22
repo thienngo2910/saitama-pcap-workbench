@@ -220,6 +220,31 @@ assert.equal(parsedHopTcp6.dport,0x1234);
 assert.deepEqual([...parsedHopTcp6.payload],[88,89,90]);
 
 
+
+const tdsCode=sliceBetween('function isPe32X86(bytes){','function splitTcpPresentRanges(stream,minLength=64){');
+const tdsDecode=new Function('signature','recoveryBytesEqual','atob',tdsCode+'; return extractTdsBase64Files')(
+  bytes=>bytes[0]===0x4d&&bytes[1]===0x5a?{ext:'exe',label:'Windows executable (MZ)'}:{ext:'bin',label:'Binary'},
+  (a,b)=>a.length===b.length&&a.every((v,i)=>v===b[i]),
+  atob
+);
+const apachePe=Buffer.alloc(73802);
+for(let i=0;i<apachePe.length;i++)apachePe[i]=(i*73+19)&255;
+apachePe[0]=0x4d;apachePe[1]=0x5a;apachePe.writeUInt32LE(0x80,0x3c);apachePe.write('PE\0\0',0x80,'binary');apachePe.writeUInt16LE(0x14c,0x84);apachePe.writeUInt16LE(0x10b,0x98);apachePe.write('ApacheBench 2.2.14',0x200,'ascii');
+const apacheB64=apachePe.toString('base64');
+const apacheChunks=Array.from({length:67},(_,i)=>apacheB64.slice(Math.round(i*apacheB64.length/67),Math.round((i+1)*apacheB64.length/67)));
+function makeTdsResponse(payloads,wide=false,type=4){return Buffer.concat(payloads.map((part,i)=>{const data=wide?Buffer.from(part,'utf16le'):Buffer.from(part,'ascii'),packet=Buffer.alloc(8+data.length);packet[0]=type;packet[1]=i===payloads.length-1?1:0;packet.writeUInt16BE(packet.length,2);packet[6]=(i+1)&255;data.copy(packet,8);return packet}))}
+const tdsPackets=tdsDecode(makeTdsResponse(apacheChunks));
+assert.equal(tdsPackets.length,1,'67 TDS Base64 fragments produce a PE candidate');
+assert.equal(tdsPackets[0].bytes.length,73802);
+assert.equal(tdsPackets[0].fragments,67);
+assert.equal(tdsPackets[0].packets,67);
+assert.equal(tdsPackets[0].name,'ApacheBench.exe','embedded ApacheBench identification produces a useful filename');
+assert.equal(Buffer.compare(Buffer.from(tdsPackets[0].bytes),apachePe),0,'Base64 reconstruction preserves every PE byte');
+const tdsWide=tdsDecode(makeTdsResponse([apacheB64.slice(0,24000),apacheB64.slice(24000,48000),apacheB64.slice(48000,72000),apacheB64.slice(72000)],true));
+assert.equal(tdsWide.length,1,'UTF-16LE Base64 inside TDS results is also decoded');
+assert.equal(Buffer.compare(Buffer.from(tdsWide[0].bytes),apachePe),0);
+const tdsBatch=tdsDecode(makeTdsResponse(apacheChunks,false,1));assert.equal(tdsBatch.length,1,'TDS SQL Batch requests can also carry encoded files');assert.equal(Buffer.compare(Buffer.from(tdsBatch[0].bytes),apachePe),0);const invalidTds=makeTdsResponse(apacheChunks,false,5);assert.deepEqual(tdsDecode(invalidTds),[],'non-response TDS packet types are ignored');
+console.log('PASS TDS packet framing, 67-part Base64 PE recovery, ApacheBench naming, and UTF-16LE values');
 console.log('PASS ICMPv4 and ICMPv6 echo header parsing');
 console.log('PASS ICMP echo filtering, flow isolation, ordering, retransmissions, gaps, and conflicts');
 console.log('PASS TCP gap-safe candidate ranges');
