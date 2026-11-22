@@ -164,6 +164,18 @@ const separated = peakTimeWindow([
 assert.equal(separated.count, 0);
 
 
+
+const synRatioCode = sliceBetween('function synCompletionRatio(synEvents,synackEvents,start,end){', 'function shannonEntropy(value){');
+const synCompletionRatio = new Function(synRatioCode + '; return synCompletionRatio')();
+const ratio = synCompletionRatio([
+  { time: 1, flow: 'a', no: 1 }, { time: 2, flow: 'b', no: 2 }
+], [
+  { time: 3, flow: 'unrelated' }, { time: 3, flow: 'a' }
+], 0, 10);
+assert.equal(ratio.syn, 2);
+assert.equal(ratio.ack, 1);
+assert.equal(ratio.ratio, 0.5);
+
 const qualityCode = sliceBetween('function shannonEntropy(value){', 'function analyze(){');
 const { shannonEntropy, rapidMacSwitch } = new Function(qualityCode + '; return {shannonEntropy,rapidMacSwitch}')();
 assert.equal(shannonEntropy('aaaaaaaa'), 0);
@@ -187,4 +199,4 @@ const shaCode = sliceBetween('async function sha256Hex(data){', 'function makeRe
 const sha256Hex = new Function(shaCode + '; return sha256Hex')();
 assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
-console.log('PASS: TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+console.log('PASS: SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
