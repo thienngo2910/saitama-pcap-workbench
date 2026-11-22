@@ -610,6 +610,31 @@ assert.equal(explicitAttack.view,'findings');
 const tlsPlan = buildPlan('questions',[],[],[],[{app:'TLS'}],[]);
 assert.equal(tlsPlan.tlsPackets,1);
 
+const progressCode = sliceBetween('function investigationProgress(plan,target=investigationTarget){', 'function investigationWorkflowHtml(){');
+const progressFactory = (goal, findings, recoveries, sensitiveData, target='') =>
+  new Function('findings','recoveries','sensitiveData','investigationTarget',
+    progressCode + '; return investigationProgress'
+  )(findings,recoveries,sensitiveData,target)({goal},target);
+const credentialProgress=progressFactory('credentials',[],[],[{type:'Password',packets:[7]}],'password');
+assert.equal(credentialProgress.state,'verify');
+assert.match(credentialProgress.detail,/packet tham chiếu/);
+const noCredentialProgress=progressFactory('credentials',[],[],[],'');
+assert.equal(noCredentialProgress.state,'not-found');
+assert.match(noCredentialProgress.detail,/không chứng minh/);
+const recoveryProgress=progressFactory('recovery',[],[{name:'a.bin'}],[],'');
+assert.equal(recoveryProgress.state,'verify');
+assert.match(recoveryProgress.detail,/1 candidate/);
+const attackProgress=progressFactory('attack',[{severity:'high'}],[],[],'');
+assert.equal(attackProgress.state,'verify');
+const covertProgress=progressFactory('covert',[{title:'Mẫu DNS có thể mang dữ liệu dạng tunnel'}],[],[],'');
+assert.equal(covertProgress.state,'verify');
+const overviewProgress=progressFactory('questions',[],[],[],'');
+assert.equal(overviewProgress.state,'overview');
+assert.ok(html.includes('id="investigationTarget"'),'specific target answer is optional');
+assert.ok(html.includes('05 · TRẠNG THÁI / ĐIỀU KIỆN DỪNG'),'workflow reports automatic progress and stop criteria');
+assert.ok(html.includes('data-state="'+credentialProgress.state+'"')||html.includes('workflow-state'),'UI displays objective-specific progress');
+assert.ok(html.includes('key log phù hợp để giải mã payload'),'TLS decryption boundary is explicit');
+
 console.log('PASS: timeline ordering/redaction, guided workflow, end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
 
 
