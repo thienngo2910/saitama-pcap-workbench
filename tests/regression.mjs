@@ -62,6 +62,12 @@ assert.equal(objects.length, 2);
 assert.equal(objects[0].name, 'one.bin');
 assert.equal(objects[0].body.length, 70);
 assert.equal(objects[1].body.length, 80);
+const upload = byteText('POST /upload HTTP/1.1\r\nHost: lab.local\r\nContent-Length: 70\r\n\r\n' + body1);
+const uploaded = extractHttp(upload);
+assert.equal(uploaded.length, 1);
+assert.equal(uploaded[0].method, 'POST');
+assert.equal(uploaded[0].path, '/upload');
+assert.equal(uploaded[0].body.length, 70);
 assert.equal(extractHttp(byteText('HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\nshort')).length, 0);
 
 // IPv4 fragment assembly using reversed arrival order and incomplete datagram.
