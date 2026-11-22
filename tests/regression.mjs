@@ -263,6 +263,23 @@ const exfilBurst=Array.from({length:10},(_,i)=>packet(i+1,{
 assert(runAnalysis(exfilBurst).findings.some(f => f.title.includes('outbound lớn')));
 
 
+
+const timelineCode = sliceBetween('function buildTimelineEvents(){', 'function timelineHtml(){');
+const buildTimeline = (packets, findings, domains, recoveries, sensitiveData) =>
+  new Function('packets','findings','domains','recoveries','sensitiveData',
+    timelineCode + '; return buildTimelineEvents'
+  )(packets, findings, domains, recoveries, sensitiveData)();
+const timeline = buildTimeline(
+  [{no:1,time:10},{no:2,time:20}],
+  [{severity:'high',title:'Suspicious pattern',desc:'Check it',ref:'Packets 2, 1'}],
+  [{name:'example.org',first:1,count:3,queries:3,responses:2}],
+  [{name:'recovered.bin',kind:'HTTP',size:4,packets:[1]}],
+  [{type:'Password',value:'must-not-appear',packets:[2],confidence:'Cao'}]
+);
+assert(timeline.length >= 5);
+assert(timeline.every((event,i) => i===0 || timeline[i-1].time <= event.time));
+assert(!timeline.some(event => event.detail.includes('must-not-appear')));
+
 const planCode = sliceBetween('function investigationPlan(){', 'function investigationWorkflowHtml(){');
 const buildPlan = (goal, findings, recoveries, sensitiveData, packets, conversations) =>
   new Function('investigationGoal','findings','recoveries','sensitiveData','packets','conversations',
@@ -281,4 +298,4 @@ assert.equal(explicitAttack.view,'findings');
 const tlsPlan = buildPlan('questions',[],[],[],[{app:'TLS'}],[]);
 assert.equal(tlsPlan.tlsPackets,1);
 
-console.log('PASS: guided forensic workflow, end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+console.log('PASS: timeline ordering/redaction, guided workflow, end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
