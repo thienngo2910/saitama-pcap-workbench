@@ -131,6 +131,7 @@ const assessIntegrity=new Function('byteText',recoveryCode+'; return assessRecov
 const pngEnd=Uint8Array.of(0,0,0,0,73,69,78,68,174,66,96,130);
 assert.equal(assessIntegrity(pngEnd,'png','complete candidate').status,'marker','PNG end marker is recognized without claiming full validation');
 assert.equal(assessIntegrity(pngEnd,'png','sequence gap giữa các chunk; candidate có thể thiếu dữ liệu.').status,'possible','known sequence gaps take precedence over a format marker');
+assert.equal(assessIntegrity(Uint8Array.of(1),'bin','TCP có 1.000 byte thiếu trong 1 khoảng; chỉ xử lý vùng byte liên tục.').status,'possible','TCP stream gaps remain visible in integrity status');
 assert.equal(assessIntegrity(Uint8Array.of(255,216,1),'jpg','candidate').status,'possible','missing JPEG EOI is flagged as possibly truncated');
 assert.equal(assessIntegrity(Uint8Array.of(1,2,3),'bin','candidate').status,'unverified','unknown formats stay explicitly unverified');
 const pdfEnd=byteText('body\n%%EOF\n');
@@ -161,6 +162,14 @@ const tftpWrap=tftpAssembler([
   {block:65535,data:byteText('Y'),no:6},
 ]);
 assert.deepEqual(tftpWrap.blocks.map(x=>x.block),[65535,0],'block ordering handles one 16-bit wrap');
+
+const splitTcpRanges=new Function('stream','minLength',sliceBetween('function splitTcpPresentRanges(stream,minLength=64){','function buildRecoveries(){')+'; return splitTcpPresentRanges(stream,minLength)');
+const splitResult=splitTcpRanges({bytes:Uint8Array.of(65,66,0,0,67,68),present:Uint8Array.of(1,1,0,0,1,1)},2);
+assert.deepEqual(splitResult.map(x=>[x.start,x.end]),[[0,2],[4,6]],'TCP gaps split the stream into exact contiguous byte ranges');
+assert.deepEqual(splitResult.map(x=>[...x.bytes]),[[65,66],[67,68]],'synthetic zero padding never enters recovered ranges');
+const unbroken=splitTcpRanges({bytes:Uint8Array.of(1,2,3),present:Uint8Array.of(1,1,1)},1);
+assert.equal(unbroken.length,1);
+console.log('PASS TCP gap-safe candidate ranges');
 console.log('PASS TFTP per-flow reconstruction, out-of-order DATA, retransmissions, gaps, conflicts, and wrap ordering');
 console.log('PASS recovered-file integrity markers and conservative completeness labels');
 console.log('PASS exact-content recovery deduplication, packet provenance, and collision guard');
