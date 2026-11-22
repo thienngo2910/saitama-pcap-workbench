@@ -244,6 +244,25 @@ const tdsWide=tdsDecode(makeTdsResponse([apacheB64.slice(0,24000),apacheB64.slic
 assert.equal(tdsWide.length,1,'UTF-16LE Base64 inside TDS results is also decoded');
 assert.equal(Buffer.compare(Buffer.from(tdsWide[0].bytes),apachePe),0);
 const tdsBatch=tdsDecode(makeTdsResponse(apacheChunks,false,1));assert.equal(tdsBatch.length,1,'TDS SQL Batch requests can also carry encoded files');assert.equal(Buffer.compare(Buffer.from(tdsBatch[0].bytes),apachePe),0);const invalidTds=makeTdsResponse(apacheChunks,false,5);assert.deepEqual(tdsDecode(invalidTds),[],'non-response TDS packet types are ignored');
+
+const behaviorCode=sliceBetween('function summarizeRecoveredBehavior(r){','function recoveryRows(){');
+const summarizeRecovered=new Function('r',behaviorCode+'; return summarizeRecoveredBehavior(r)');
+const psText="function Invoke-PowerDump { Get-Content HKLM:\\SAM; # Dump hashes from registry\\n Invoke-WebRequest https://example.test/a; Invoke-Expression $x; Register-ScheduledTask -TaskName Demo; [IO.File]::WriteAllBytes('x',$b); [Convert]::FromBase64String($v) }";
+const staticSummary=summarizeRecovered({name:'Invoke-PowerDump.ps1',ext:'txt',bytes:new TextEncoder().encode(psText)});
+assert.equal(staticSummary.isText,true);
+assert.ok(staticSummary.indicators.some(x=>x.id==='credentials'),'hash/credential behavior is described');
+assert.ok(staticSummary.indicators.some(x=>x.id==='network'),'network behavior is described');
+assert.ok(staticSummary.indicators.some(x=>x.id==='execution'),'execution behavior is described');
+assert.ok(staticSummary.indicators.some(x=>x.id==='persistence'),'persistence behavior is described');
+assert.ok(staticSummary.indicators.some(x=>x.id==='files'),'file operations are described');
+assert.ok(staticSummary.indicators.some(x=>x.id==='obfuscation'),'encoding behavior is described');
+const fullTextCode=new Function('r','esc','fmtBytes',behaviorCode+'; return recoveryFullText(r)');
+const longScript='<script>\n'+('A'.repeat(5000))+'\n# END_OF_SCRIPT';
+const fullPreview=fullTextCode({name:'sample.ps1',ext:'txt',size:longScript.length,bytes:new TextEncoder().encode(longScript)},s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),n=>n+' B');
+assert.ok(fullPreview.includes('&lt;script&gt;'),'recovered scripts are escaped instead of executed as HTML');
+assert.ok(fullPreview.includes('END_OF_SCRIPT'),'full text viewer shows content beyond the initial preview');
+assert.ok(fullPreview.includes('<details'),'full text opens on demand');
+console.log('PASS static recovered-file summaries, script text viewer, and HTML escaping');
 console.log('PASS TDS packet framing, 67-part Base64 PE recovery, ApacheBench naming, and UTF-16LE values');
 console.log('PASS ICMPv4 and ICMPv6 echo header parsing');
 console.log('PASS ICMP echo filtering, flow isolation, ordering, retransmissions, gaps, and conflicts');
