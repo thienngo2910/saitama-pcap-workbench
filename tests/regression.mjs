@@ -97,4 +97,34 @@ assert.equal(complete[0].raw.length, 58);
 assert.deepEqual([...complete[0].raw.slice(34)], Array.from({ length: 24 }, (_, i) => i));
 assert.equal(reassembleIp([first])[0].proto, 'IPv4 fragment');
 
-console.log('PASS: script syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 complete/incomplete fragments');
+
+// IPv6 fragments: Fragment extension header is removed and payload is restored.
+const ipv6Code = sliceBetween('function reassembleIpv6Fragments(list){', 'function ascii(d){');
+const read32 = (d, o, little) => little ? (d[o] | d[o + 1] << 8 | d[o + 2] << 16 | d[o + 3] << 24) >>> 0 : (d[o] * 0x1000000 + (d[o + 1] << 16) + (d[o + 2] << 8) + d[o + 3]) >>> 0;
+const ip6 = (d, o) => [...Array(8)].map((_, i) => ((d[o + 2*i] << 8) | d[o + 2*i + 1]).toString(16)).join(':');
+const reassembleIp6 = new Function('u16', 'u32', 'ip6', 'parseFrame', ipv6Code + '; return reassembleIpv6Fragments')(
+  read16, read32, ip6, parseFrame
+);
+function fragment6(no, offset, more, payload) {
+  const raw = new Uint8Array(14 + 40 + 8 + payload.length);
+  raw[12] = 0x86; raw[13] = 0xdd;
+  raw[14] = 0x60; raw[18] = 0; raw[19] = 8 + payload.length; raw[20] = 44; raw[21] = 64;
+  raw.set([0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], 22);
+  raw.set([0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], 38);
+  raw[54] = 17;
+  const field = offset | (more ? 1 : 0);
+  raw[56] = field >> 8; raw[57] = field & 255;
+  raw[58] = 0x12; raw[59] = 0x34; raw[60] = 0; raw[61] = 0; raw[62] = 0; raw[63] = 7;
+  raw.set(payload, 62);
+  return { no, raw, linkType: 1, time: no, proto: 'IPv6 fragment', payload };
+}
+const first6 = fragment6(1, 0, true, Uint8Array.from({ length: 16 }, (_, i) => i));
+const last6 = fragment6(2, 16, false, Uint8Array.from({ length: 8 }, (_, i) => i + 16));
+const complete6 = reassembleIp6([last6, first6]);
+assert.equal(complete6.length, 1);
+assert.deepEqual(complete6[0].fragmentPackets, [1, 2]);
+assert.equal(complete6[0].raw[20], 17);
+assert.deepEqual([...complete6[0].raw.slice(54)], Array.from({ length: 24 }, (_, i) => i));
+assert.equal(reassembleIp6([first6])[0].proto, 'IPv6 fragment');
+
+console.log('PASS: syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
