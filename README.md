@@ -12,7 +12,7 @@ This static page is published at:
 
 `https://thienngo2910.github.io/saitama-pcap-workbench/`
 
-The source lives in the `saitama-pcap-workbench/` directory of the existing `thienngo2910.github.io` GitHub Pages repository. The rest of that site is left untouched.
+The source is in the root of the `thienngo2910/saitama-pcap-workbench` repository.
 
 ## Optional OpenAI analysis
 
@@ -21,9 +21,9 @@ The browser app is static, so it never contains an OpenAI API key. Deploy the Wo
 ```powershell
 cd worker
 npx wrangler login
-npx wrangler secret put OPENAI_API_KEY
-npx wrangler secret put AI_GATE_TOKEN
-npx wrangler deploy
+npx wrangler secret put OPENAI_API_KEY --config wrangler.toml
+npx wrangler secret put AI_GATE_TOKEN --config wrangler.toml
+npx wrangler deploy --config wrangler.toml
 ```
 
 Generate a random gate token locally (do not commit it):
@@ -32,7 +32,7 @@ Generate a random gate token locally (do not commit it):
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Enter the deployed Worker URL and the same gate token in the AI panel. The token is kept in page memory and is cleared when the analysis is cleared or the page is reloaded. The Worker accepts requests only from the published GitHub Pages origin, validates PCAP/PCAPNG magic, and rejects files larger than 25 MiB. It uploads the original capture to OpenAI so Code Interpreter can inspect it in a Python sandbox. It asks the model to follow the Network Forensics flow, cite packet/frame evidence, treat capture text as untrusted data, and redact credential values in its response. The Worker requests deletion of the temporary OpenAI file and container after analysis; cleanup is best effort, and OpenAI retention/monitoring policies still apply. OpenAI API and Code Interpreter usage may incur charges. Review your provider settings and capture contents before enabling upload.
+The Workbench pre-fills its deployed Worker URL. Enter the same gate token in the setup panel before loading a capture. The token stays in page memory and is cleared when the analysis is cleared or the page is reloaded. The Worker accepts requests only from the published GitHub Pages origin, validates PCAP/PCAPNG magic, and rejects files larger than 25 MiB. It uploads the original capture to OpenAI so Code Interpreter can inspect it in a Python sandbox. It asks the model to follow the Network Forensics flow, cite packet/frame evidence, treat capture text as untrusted data, and redact credential values in its response. The Worker requests deletion of the temporary OpenAI file and container after analysis; cleanup is best effort, and OpenAI retention/monitoring policies still apply. OpenAI API and Code Interpreter usage may incur charges. Review your provider settings and capture contents before enabling upload.
 
 Worker tests run with `node --test tests/ai-worker.test.mjs`.
 
