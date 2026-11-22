@@ -262,4 +262,23 @@ const exfilBurst=Array.from({length:10},(_,i)=>packet(i+1,{
 }));
 assert(runAnalysis(exfilBurst).findings.some(f => f.title.includes('outbound lớn')));
 
-console.log('PASS: end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+
+const planCode = sliceBetween('function investigationPlan(){', 'function investigationWorkflowHtml(){');
+const buildPlan = (goal, findings, recoveries, sensitiveData, packets, conversations) =>
+  new Function('investigationGoal','findings','recoveries','sensitiveData','packets','conversations',
+    planCode + '; return investigationPlan'
+  )(goal, findings, recoveries, sensitiveData, packets, conversations)();
+const autoCredentials = buildPlan('auto',[{severity:'high',title:'test',desc:'evidence',ref:'packet 1'}],[{}],[{}],[],[]);
+assert.equal(autoCredentials.goal,'credentials');
+assert.equal(autoCredentials.view,'sensitive');
+const autoRecovery = buildPlan('auto',[],[{}],[],[],[]);
+assert.equal(autoRecovery.goal,'recovery');
+const autoCovert = buildPlan('auto',[{severity:'medium',title:'Mẫu DNS có thể mang dữ liệu dạng tunnel',desc:'x',ref:'p'}],[],[],[],[]);
+assert.equal(autoCovert.goal,'covert');
+const explicitAttack = buildPlan('attack',[],[],[],[],[]);
+assert.equal(explicitAttack.goal,'attack');
+assert.equal(explicitAttack.view,'findings');
+const tlsPlan = buildPlan('questions',[],[],[],[{app:'TLS'}],[]);
+assert.equal(tlsPlan.tlsPackets,1);
+
+console.log('PASS: guided forensic workflow, end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
