@@ -247,7 +247,7 @@ const tdsBatch=tdsDecode(makeTdsResponse(apacheChunks,false,1));assert.equal(tds
 
 const behaviorCode=sliceBetween('function summarizeRecoveredBehavior(r){','function recoveryRows(){');
 const summarizeRecovered=new Function('r',behaviorCode+'; return summarizeRecoveredBehavior(r)');
-const psText="function Invoke-PowerDump { Get-Content HKLM:\\SAM; # Dump hashes from registry\\n Invoke-WebRequest https://example.test/a; Invoke-Expression $x; Register-ScheduledTask -TaskName Demo; [IO.File]::WriteAllBytes('x',$b); [Convert]::FromBase64String($v) }";
+const psText="function Invoke-PowerDump { Get-Content HKLM:\\SAM; # Dump hashes from registry; administrative privileges required.\\n Invoke-WebRequest https://example.test/a; Invoke-Expression $x; Register-ScheduledTask -TaskName Demo; [IO.File]::WriteAllBytes('x',$b); [Convert]::FromBase64String($v) }";
 const staticSummary=summarizeRecovered({name:'Invoke-PowerDump.ps1',ext:'txt',bytes:new TextEncoder().encode(psText)});
 assert.equal(staticSummary.isText,true);
 assert.ok(staticSummary.indicators.some(x=>x.id==='credentials'),'hash/credential behavior is described');
@@ -256,6 +256,10 @@ assert.ok(staticSummary.indicators.some(x=>x.id==='execution'),'execution behavi
 assert.ok(staticSummary.indicators.some(x=>x.id==='persistence'),'persistence behavior is described');
 assert.ok(staticSummary.indicators.some(x=>x.id==='files'),'file operations are described');
 assert.ok(staticSummary.indicators.some(x=>x.id==='obfuscation'),'encoding behavior is described');
+assert.deepEqual(staticSummary.steps.map(x=>x.phase),['Nguồn dữ liệu','Xử lý dữ liệu','Hành động tiếp theo','Kết quả'],'summary explains the file as a conceptual sequence');
+assert.match(staticSummary.steps[0].detail,/PowerDump|hash/);
+assert.match(staticSummary.steps[0].condition,/Administrator/);
+assert.match(staticSummary.steps[2].condition,/chưa chứng minh/);
 const fullTextCode=new Function('r','esc','fmtBytes',behaviorCode+'; return recoveryFullText(r)');
 const longScript='<script>\n'+('A'.repeat(5000))+'\n# END_OF_SCRIPT';
 const fullPreview=fullTextCode({name:'sample.ps1',ext:'txt',size:longScript.length,bytes:new TextEncoder().encode(longScript)},s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),n=>n+' B');
