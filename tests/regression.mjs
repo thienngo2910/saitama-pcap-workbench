@@ -317,6 +317,14 @@ assert.deepEqual(complete[0].fragmentPackets, [1, 2]);
 assert.equal(complete[0].raw.length, 58);
 assert.deepEqual([...complete[0].raw.slice(34)], Array.from({ length: 24 }, (_, i) => i));
 assert.equal(reassembleIp([first])[0].proto, 'IPv4 fragment');
+const overlapData=Uint8Array.from({length:16},(_,i)=>i+8);
+const overlapSame=fragment(3,8,false,overlapData);
+assert.equal(reassembleIp([first,overlapSame])[0].proto,'UDP','identical IPv4 overlaps remain reassemblable');
+const overlapConflictData=overlapData.slice();overlapConflictData[0]=99;
+const overlapConflict=reassembleIp([first,fragment(4,8,false,overlapConflictData)])[0];
+assert.equal(overlapConflict.proto,'IPv4 fragment','conflicting IPv4 overlaps are not parsed as transport');
+assert.match(overlapConflict.info,/chồng lấn mâu thuẫn/);
+
 
 
 // IPv6 fragments: Fragment extension header is removed and payload is restored.
@@ -347,6 +355,13 @@ assert.deepEqual(complete6[0].fragmentPackets, [1, 2]);
 assert.equal(complete6[0].raw[20], 17);
 assert.deepEqual([...complete6[0].raw.slice(54)], Array.from({ length: 24 }, (_, i) => i));
 assert.equal(reassembleIp6([first6])[0].proto, 'IPv6 fragment');
+const overlapSame6=fragment6(3,8,false,overlapData);
+assert.equal(reassembleIp6([first6,overlapSame6])[0].proto,'UDP','identical IPv6 overlaps remain reassemblable');
+const overlapConflict6Data=overlapData.slice();overlapConflict6Data[0]=99;
+const overlapConflict6=reassembleIp6([first6,fragment6(4,8,false,overlapConflict6Data)])[0];
+assert.equal(overlapConflict6.proto,'IPv6 fragment','conflicting IPv6 overlaps are not parsed as transport');
+assert.match(overlapConflict6.info,/chồng lấn mâu thuẫn/);
+
 
 
 
