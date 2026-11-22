@@ -13,7 +13,7 @@ function json(body, status, origin) {
   if (origin === PAGE_ORIGIN) {
     headers.set("Access-Control-Allow-Origin", PAGE_ORIGIN);
     headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, X-AI-Gate");
+    headers.set("Access-Control-Allow-Headers", "Content-Type");
     headers.set("Access-Control-Max-Age", "600");
     headers.set("Vary", "Origin");
   }
@@ -111,9 +111,10 @@ export default {
     if (request.method === "OPTIONS") return json({}, 204, origin);
     const url = new URL(request.url);
     if (url.pathname !== "/analyze" || request.method !== "POST") return json({ error: "Route không tồn tại." }, 404, origin);
-    if (!env.AI_GATE_TOKEN || !env.OPENAI_API_KEY) return json({ error: "Worker chưa được cấu hình secrets." }, 503, origin);
-    const gate = request.headers.get("X-AI-Gate") || "";
-    if (gate.length < 24 || gate.length > 256 || gate !== env.AI_GATE_TOKEN) return json({ error: "Access token không hợp lệ." }, 401, origin);
+    if (!env.TURNSTILE_SECRET || !env.OPENAI_API_KEY || !env.AI_RATE_LIMITER) return json({ error: "Worker chưa được cấu hình secrets hoặc rate limit." }, 503, origin);
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const quota = await env.AI_RATE_LIMITER.limit({ key: ip });
+    if (!quota.success) return json({ error: "Đã đạt giới hạn phân tích tạm thời. Hãy thử lại sau một phút." }, 429, origin);
     const declared = Number(request.headers.get("Content-Length") || 0);
     if (declared > MAX_BODY_BYTES) return json({ error: "PCAP vượt giới hạn 25 MiB cho phân tích AI." }, 413, origin);
     if (!request.headers.get("Content-Type")?.toLowerCase().includes("multipart/form-data")) return json({ error: "Yêu cầu phải chứa PCAP và summary dạng multipart." }, 415, origin);
@@ -135,6 +136,27 @@ export default {
     let summary;
     try { summary = sanitizeSummary(JSON.parse(summaryText)); }
     catch { return json({ error: "Summary JSON không hợp lệ." }, 400, origin); }
+
+    const challenge = form.get("cf-turnstile-response");
+    if (typeof challenge !== "string" || challenge.length === 0 || challenge.length > 2048) {
+      return json({ error: "Hoàn tất xác minh Cloudflare trước khi gửi." }, 403, origin);
+    }
+    let verified;
+    try {
+      const check = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: challenge, remoteip: ip }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!check.ok) throw new Error("Turnstile Siteverify unavailable");
+      verified = await check.json();
+    } catch {
+      return json({ error: "Không thể xác minh Cloudflare. Hãy thử lại." }, 503, origin);
+    }
+    if (!verified.success || verified.action !== "analyze-pcap" || verified.hostname !== "thienngo2910.github.io") {
+      return json({ error: "Xác minh Cloudflare thất bại hoặc đã hết hạn. Hãy thử lại." }, 403, origin);
+    }
 
     const apiKey = env.OPENAI_API_KEY;
     const model = typeof env.OPENAI_MODEL === "string" && env.OPENAI_MODEL.trim() ? env.OPENAI_MODEL.trim() : DEFAULT_MODEL;
