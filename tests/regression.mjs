@@ -137,6 +137,31 @@ const pdfEnd=byteText('body\n%%EOF\n');
 assert.equal(assessIntegrity(pdfEnd,'pdf','candidate').status,'marker');
 const zipEnd=Uint8Array.of(80,75,5,6,...new Uint8Array(18));
 assert.equal(assessIntegrity(zipEnd,'zip','candidate').status,'marker');
+
+const tftpAssembler=new Function('joinBytes',sliceBetween('function assembleTftpTransfer(parts){','function buildRecoveries(){')+'; return assembleTftpTransfer')(joinBytes);
+const tftpOutOfOrder=tftpAssembler([
+  {block:4,data:byteText('D'),no:4},
+  {block:2,data:byteText('B'),no:2},
+  {block:1,data:byteText('A'),no:1},
+  {block:2,data:byteText('B'),no:3},
+]);
+assert.equal(new TextDecoder().decode(tftpOutOfOrder.bytes),'ABD','TFTP blocks are sorted by block number and identical retransmissions deduplicated');
+assert.equal(tftpOutOfOrder.missing,true,'missing middle TFTP block is detected');
+assert.equal(tftpOutOfOrder.conflictBlocks,0);
+assert.deepEqual(tftpOutOfOrder.packets,[4,2,1,3],'packet references include retransmissions');
+const tftpConflict=tftpAssembler([
+  {block:1,data:byteText('A'),no:1},
+  {block:2,data:byteText('B'),no:2},
+  {block:2,data:byteText('X'),no:3},
+]);
+assert.equal(new TextDecoder().decode(tftpConflict.bytes),'AB','conflicting duplicate keeps first observed content');
+assert.equal(tftpConflict.conflictBlocks,1,'conflicting duplicate blocks are surfaced');
+const tftpWrap=tftpAssembler([
+  {block:0,data:byteText('Z'),no:7},
+  {block:65535,data:byteText('Y'),no:6},
+]);
+assert.deepEqual(tftpWrap.blocks.map(x=>x.block),[65535,0],'block ordering handles one 16-bit wrap');
+console.log('PASS TFTP per-flow reconstruction, out-of-order DATA, retransmissions, gaps, conflicts, and wrap ordering');
 console.log('PASS recovered-file integrity markers and conservative completeness labels');
 console.log('PASS exact-content recovery deduplication, packet provenance, and collision guard');
 
