@@ -163,8 +163,28 @@ const separated = peakTimeWindow([
 ], 180, 2);
 assert.equal(separated.count, 0);
 
+
+const qualityCode = sliceBetween('function shannonEntropy(value){', 'function analyze(){');
+const { shannonEntropy, rapidMacSwitch } = new Function(qualityCode + '; return {shannonEntropy,rapidMacSwitch}')();
+assert.equal(shannonEntropy('aaaaaaaa'), 0);
+assert.equal(shannonEntropy('abcd'), 2);
+assert.equal(rapidMacSwitch([
+  { time: 0, mac: '00:11', no: 1 }, { time: 30, mac: '00:22', no: 2 }
+], 60).length, 2);
+assert.equal(rapidMacSwitch([
+  { time: 0, mac: '00:11', no: 1 }, { time: 61, mac: '00:22', no: 2 }
+], 60), null);
+const weighted = peakTimeWindow([
+  { time: 1, key: 'dns-a', no: 1, length: 20, entropy: 3.8, long: true, bytes: 100 },
+  { time: 2, key: 'dns-b', no: 2, length: 30, entropy: 4.2, long: true, bytes: 200 }
+], 10, 2);
+assert.equal(weighted.avgLength, 25);
+assert.equal(weighted.avgEntropy, 4);
+assert.equal(weighted.longCount, 2);
+assert.equal(weighted.sumBytes, 300);
+
 const shaCode = sliceBetween('async function sha256Hex(data){', 'function makeReport(){');
 const sha256Hex = new Function(shaCode + '; return sha256Hex')();
 assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
-console.log('PASS: TCP-reassembled secret collection with gaps, SHA-256, sliding windows, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+console.log('PASS: TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
