@@ -236,7 +236,7 @@ const tunnelPackets=[];
 let seed=123456;
 for(let i=0;i<14;i++){
   let label='';
-  for(let j=0;j<24;j++){seed=(seed*1664525+1013904223)>>>0;label+='abcdefghijklmnopqrstuvwxyz234567'[seed&31]}
+  for(let j=0;j<24;j++){seed=(seed*1664525+1013904223)>>>0;label+='abcdefghijklmnopqrstuvwxyz234567'[seed>>>27]}
   tunnelPackets.push(packet(i+1,{proto:'UDP',sport:53000,dport:53,time:i*2,tcpFlags:null,
     dns:[{name:label+'.example.com',type:'A',response:false,record:false}]}));
 }
