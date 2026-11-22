@@ -48,7 +48,8 @@ assert.equal(new TextDecoder().decode(tcp.bytes), 'abcd');
 
 // HTTP keep-alive: more than one response, both content-length and chunked.
 const httpCode = sliceBetween('function httpByteText(bytes){', 'function addRecovery');
-const extractHttp = new Function('joinBytes', httpCode + '; return extractHttpObjects')(joinBytes);
+const httpTools = new Function('joinBytes', httpCode + '; return {extractHttpObjects,httpPathFilename,extractMultipartFiles}')(joinBytes);
+const extractHttp = httpTools.extractHttpObjects;
 const body1 = 'A'.repeat(70);
 const body2 = 'B'.repeat(80);
 const stream = byteText(
@@ -68,18 +69,102 @@ assert.equal(uploaded.length, 1);
 assert.equal(uploaded[0].method, 'POST');
 assert.equal(uploaded[0].path, '/upload');
 assert.equal(uploaded[0].body.length, 70);
-assert.equal(extractHttp(byteText('HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\nshort')).length, 0);
+const partial=extractHttp(byteText('HTTP/1.1 200 OK\r\nContent-Length: 500\r\nContent-Type: application/octet-stream\r\n\r\nshort'));
+assert.equal(partial.length,1,'salvage a truncated HTTP body as an explicitly partial candidate');
+assert.equal(partial[0].truncated,true);
+assert.equal(partial[0].body.length,5);
+assert.equal(partial[0].contentType,'application/octet-stream');
+const shortObject=extractHttp(byteText('HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Disposition: attachment; filename*=UTF-8\'\'file%20one.ps1\r\n\r\nabcd'));
+assert.equal(shortObject.length,1,'do not discard small HTTP objects');
+assert.equal(shortObject[0].name,'file one.ps1');
+const manyHttp=byteText(Array.from({length:20},(_,i)=>'HTTP/1.1 200 OK\r\nContent-Length: 3\r\nContent-Disposition: attachment; filename="object-'+i+'.ps1"\r\n\r\nabc').join(''));
+assert.equal(extractHttp(manyHttp).length,20,'extract more than twelve objects from a persistent connection');
+
+
+
+const assessmentCode = sliceBetween('function scanRecoveredFile(name,kind,bytes,sig){', 'function findMagicOffset(b){');
+const scanRecoveredFile = new Function(assessmentCode + '; return scanRecoveredFile')();
+const recoveryCode = sliceBetween('function recoveryPriority(kind,name){', 'function decodeB32(s){');
+const savedHttpObjects=[];
+const addRecoveryTest = new Function('recoveries','signature','scanRecoveredFile',recoveryCode+'; return addRecovery')(
+  savedHttpObjects, bytes => ({label:'Unknown binary data', ext:'bin'}), scanRecoveredFile
+);
+for (let i=0;i<100;i++) addRecoveryTest(savedHttpObjects, 'dns-'+i+'.bin', 'DNS decoded · base64url', Uint8Array.of(i), [i+1], 'Low priority candidate');
+for (let i=0;i<16;i++) addRecoveryTest(savedHttpObjects, 'checking.ps1', 'HTTP response object · application/octet-stream', Uint8Array.of(i+1), [4221+i], 'Complete capture');
+assert.equal(savedHttpObjects.length,100,'keep recovery memory bounded');
+assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object')).length,16,'keep HTTP objects even when earlier DNS results fill the candidate list');
+assert.equal(savedHttpObjects.find(x=>x.kind.startsWith('HTTP response object')).name,'checking.ps1','keep the original HTTP filename');
+assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object'))[1].name,'checking (2).ps1','avoid overwriting repeated object names');
+assert.equal(savedHttpObjects.filter(x=>x.kind.startsWith('HTTP response object'))[0].packets[0],4221);
+
+
+const riskyScript=scanRecoveredFile('check.ps1','HTTP response object',byteText('$c.DownloadString($u); Invoke-Expression $c'),{ext:'txt',label:'Text'});
+assert.equal(riskyScript.level,'high');
+assert.ok(riskyScript.signals.length>=3);
+assert.equal(riskyScript.engine,'heuristic-static');
+const executableBytes=new Uint8Array(128);executableBytes[0]=0x4d;executableBytes[1]=0x5a;executableBytes[0x3c]=64;executableBytes[64]=0x50;executableBytes[65]=0x45;
+const peAlert=scanRecoveredFile('payload.exe','HTTP response object',executableBytes,{ext:'exe',label:'Windows PE / MZ'});
+assert.equal(peAlert.level,'medium','executable format is a warning, not a confirmed virus verdict');
+assert.equal(scanRecoveredFile('readme.txt','HTTP response object',byteText('just ordinary notes'),{ext:'txt',label:'Text'}),null);
+const disguised=scanRecoveredFile('invoice.txt','HTTP response object',executableBytes,{ext:'exe',label:'Windows PE / MZ'});
+assert.ok(disguised.signals.some(x=>x.includes('không khớp')));
+assert.ok(html.includes('heuristic, không xác nhận virus'), 'UI distinguishes heuristic warnings from antivirus verdicts');
+assert.ok(html.includes('Không mở/chạy trực tiếp'), 'UI tells users to avoid executing recovered files');
+console.log('PASS recovered-file malware heuristics and safe handling');
+
+
+assert.equal(httpTools.httpPathFilename('/downloads/checking.ps1?token=1'),'checking.ps1','infer response filenames from matching request URI');
+const multipartBody=byteText('--boundary42\r\nContent-Disposition: form-data; name="upload"; filename="ichigo-lite.ps1"\r\nContent-Type: application/octet-stream\r\n\r\nWrite-Output "lab"\r\n--boundary42--\r\n');
+const multipartFiles=httpTools.extractMultipartFiles(multipartBody,'multipart/form-data; boundary=boundary42');
+assert.equal(multipartFiles.length,1);
+assert.equal(multipartFiles[0].name,'ichigo-lite.ps1');
+assert.equal(new TextDecoder().decode(multipartFiles[0].bytes),'Write-Output "lab"');
+assert.ok(html.includes('extractMultipartFiles(obj.body,obj.contentTypeHeader)'), 'HTTP upload bodies are split into individual multipart file candidates');
+
+
+const signatureCode = sliceBetween('function signature(b){', 'function scanRecoveredFile(name,kind,bytes,sig){');
+const signature = new Function(signatureCode + '; return signature')();
+const sampleSignatures=[
+  [Uint8Array.of(0x53,0x51,0x4c,0x69,0x74,0x65,0x20,0x66,0x6f,0x72,0x6d,0x61,0x74,0x20,0x33,0),'sqlite'],
+  [Uint8Array.of(0x1f,0x8b,8,0),'gz'],
+  [Uint8Array.of(0xfd,0x37,0x7a,0x58,0x5a,0),'xz'],
+  [Uint8Array.of(0x28,0xb5,0x2f,0xfd),'zst'],
+  [Uint8Array.of(0x04,0x22,0x4d,0x18),'lz4'],
+  [byteText('RIFF\x00\x00\x00\x00WAVE'),'wav'],
+  [byteText('RIFF\x00\x00\x00\x00AVI '),'avi'],
+  [byteText('....ftypisom'),'mp4'],
+  [Uint8Array.of(0x1a,0x45,0xdf,0xa3,0x01,0x02,0x03,0x04),'webm'],
+  [Uint8Array.of(0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1),'ole'],
+  [Uint8Array.of(0x4d,0x53,0x43,0x46,0,0,0,0),'cab'],
+  [byteText('SQLite format 3\0'),'sqlite'],
+  [byteText('{"valid":true}'),'json'],
+  [byteText('<?xml version="1.0"?>'),'xml'],
+  [byteText('<!doctype html><html>'),'html'],
+  [byteText('{\\rtf1 sample}'),'rtf'],
+];
+for(const [bytes,ext] of sampleSignatures)assert.equal(signature(bytes).ext,ext,'recognize '+ext);
+const pcapng=Uint8Array.from([0x0a,0x0d,0x0d,0x0a,...Array(20).fill(0)]);
+assert.equal(signature(pcapng).ext,'pcapng');
+const carveCode=sliceBetween('const RECOVERY_MAGIC_PATTERNS=', 'function decodeB32(s){');
+const formatRead16=(d,o,l)=>l?d[o]|d[o+1]<<8:d[o]<<8|d[o+1];
+const formatRead32=(d,o,l)=>l?(d[o]|d[o+1]<<8|d[o+2]<<16|d[o+3]<<24)>>>0:(d[o]*0x1000000+d[o+1]*65536+d[o+2]*256+d[o+3])>>>0;
+const carveApi=new Function('signature','u16','u32',carveCode+'; return {findMagicCandidates,carvedObjectEnd}')(signature,formatRead16,formatRead32);
+const carveStream=joinBytes([Uint8Array.of(0,1,2),Uint8Array.from([0x89,0x50,0x4e,0x47,13,10,26,10,0,0,0,0,0,0,0,0,0x49,0x45,0x4e,0x44,0xae,0x42,0x60,0x82]),byteText('%PDF-1.7\\nbody\\n%%EOF')]);
+const found=carveApi.findMagicCandidates(carveStream);
+assert.deepEqual(found.map(x=>x.ext),['png','pdf'],'carve multiple known formats from a single stream');
+assert.equal(carveApi.carvedObjectEnd(carveStream,found[0].offset,found[1].offset),found[1].offset,'stop at the PNG terminator before the next object');
+console.log('PASS expanded signatures and multi-object stream carving');
 
 // IPv4 fragment assembly using reversed arrival order and incomplete datagram.
 const ipCode = sliceBetween('function reassembleIpv4Fragments(list){', 'function ascii(d){');
-const read16 = (d, o, little) => little ? d[o] | d[o + 1] << 8 : d[o] << 8 | d[o + 1];
+const magicRead16 = (d, o, little) => little ? d[o] | d[o + 1] << 8 : d[o] << 8 | d[o + 1];
 const ipv4 = (d, o) => `${d[o]}.${d[o + 1]}.${d[o + 2]}.${d[o + 3]}`;
 const parseFrame = (raw, linkType, no) => ({
   no, proto: 'UDP', raw, linkType, payload: raw.slice(34),
   src: '10.0.0.1', dst: '10.0.0.2'
 });
 const reassembleIp = new Function('u16', 'ip4', 'parseFrame', ipCode + '; return reassembleIpv4Fragments')(
-  read16, ipv4, parseFrame
+  magicRead16, ipv4, parseFrame
 );
 function fragment(no, offset, more, payload) {
   const raw = new Uint8Array(14 + 20 + payload.length);
@@ -106,10 +191,10 @@ assert.equal(reassembleIp([first])[0].proto, 'IPv4 fragment');
 
 // IPv6 fragments: Fragment extension header is removed and payload is restored.
 const ipv6Code = sliceBetween('function reassembleIpv6Fragments(list){', 'function ascii(d){');
-const read32 = (d, o, little) => little ? (d[o] | d[o + 1] << 8 | d[o + 2] << 16 | d[o + 3] << 24) >>> 0 : (d[o] * 0x1000000 + (d[o + 1] << 16) + (d[o + 2] << 8) + d[o + 3]) >>> 0;
+const magicRead32 = (d, o, little) => little ? (d[o] | d[o + 1] << 8 | d[o + 2] << 16 | d[o + 3] << 24) >>> 0 : (d[o] * 0x1000000 + (d[o + 1] << 16) + (d[o + 2] << 8) + d[o + 3]) >>> 0;
 const ip6 = (d, o) => [...Array(8)].map((_, i) => ((d[o + 2*i] << 8) | d[o + 2*i + 1]).toString(16)).join(':');
 const reassembleIp6 = new Function('u16', 'u32', 'ip6', 'parseFrame', ipv6Code + '; return reassembleIpv6Fragments')(
-  read16, read32, ip6, parseFrame
+  magicRead16, magicRead32, ip6, parseFrame
 );
 function fragment6(no, offset, more, payload) {
   const raw = new Uint8Array(14 + 40 + 8 + payload.length);
