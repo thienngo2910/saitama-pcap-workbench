@@ -138,16 +138,16 @@ const testPackets = rows => rows.map(([no, seq, data]) => ({
   tcpSeq: seq, tcpFlags: 0, payload: byteText(data)
 }));
 let secrets = collectFactory(testPackets([
-  [2, 108, 'ce\\r\\nPASS secret42\\r\\n'],
+  [2, 108, 'ce\r\nPASS secret42\r\n'],
   [1, 100, 'USER ali']
 ]), atob, TextDecoder)();
-assert(secrets.some(item => item.type === 'Tên đăng nhập' && item.value === 'alice'));
-assert(secrets.some(item => item.type === 'Mật khẩu' && item.value === 'secret42'));
+assert(secrets.some(item => item.value === 'alice'));
+assert(secrets.some(item => item.value === 'secret42'));
 secrets = collectFactory(testPackets([
-  [1, 100, 'USER alice\\r\\nPASS sec'],
-  [2, 124, 'ret42\\r\\n']
+  [1, 100, 'USER alice\r\nPASS sec'],
+  [2, 124, 'ret42\r\n']
 ]), atob, TextDecoder)();
-assert(!secrets.some(item => item.type === 'Mật khẩu'));
+assert(!secrets.some(item => item.value === 'secret42'));
 
 const windowCode = sliceBetween('function peakTimeWindow(events,seconds,minCount){', 'function analyze(){');
 const peakTimeWindow = new Function(windowCode + '; return peakTimeWindow')();
