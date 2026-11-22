@@ -126,6 +126,18 @@ addCollisionTest(collisionRows,'b.bin','TCP file carving',collisionB,[2],'candid
 assert.equal(collisionRows.length,2,'full byte comparison guards sampled-fingerprint collisions');
 assert.ok(html.includes('ครั้ง xuất hiện') || html.includes('lần xuất hiện'), 'recovery UI exposes duplicate occurrence counts');
 assert.ok(html.includes('sourceNames'), 'recovery metadata retains alternate source names');
+
+const assessIntegrity=new Function('byteText',recoveryCode+'; return assessRecoveryIntegrity')(byteText);
+const pngEnd=Uint8Array.of(0,0,0,0,73,69,78,68,174,66,96,130);
+assert.equal(assessIntegrity(pngEnd,'png','complete candidate').status,'marker','PNG end marker is recognized without claiming full validation');
+assert.equal(assessIntegrity(pngEnd,'png','sequence gap giữa các chunk; candidate có thể thiếu dữ liệu.').status,'possible','known sequence gaps take precedence over a format marker');
+assert.equal(assessIntegrity(Uint8Array.of(255,216,1),'jpg','candidate').status,'possible','missing JPEG EOI is flagged as possibly truncated');
+assert.equal(assessIntegrity(Uint8Array.of(1,2,3),'bin','candidate').status,'unverified','unknown formats stay explicitly unverified');
+const pdfEnd=byteText('body\n%%EOF\n');
+assert.equal(assessIntegrity(pdfEnd,'pdf','candidate').status,'marker');
+const zipEnd=Uint8Array.of(80,75,5,6,...new Uint8Array(18));
+assert.equal(assessIntegrity(zipEnd,'zip','candidate').status,'marker');
+console.log('PASS recovered-file integrity markers and conservative completeness labels');
 console.log('PASS exact-content recovery deduplication, packet provenance, and collision guard');
 
 
