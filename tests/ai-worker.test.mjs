@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import worker from '../worker/index.mjs';
 
 const ORIGIN = 'https://thienngo2910.github.io';
-const ENV = { AI_GATE_TOKEN: 'test-token-that-is-at-least-32-bytes', OPENAI_API_KEY: 'test-openai-key' };
+const ENV = {
+  TURNSTILE_SECRET: 'test-turnstile-secret',
+  OPENAI_API_KEY: 'test-openai-key',
+  AI_RATE_LIMITER: { limit: async () => ({ success: true }) },
+};
 const summary = {
   filename: 'sample.pcap', sha256: 'a'.repeat(64), packet_count: 1, bytes: 24,
   overview: { protocols: [{ name: 'TCP', packets: 1 }] },
@@ -17,30 +21,52 @@ function capture(magic = [0xd4, 0xc3, 0xb2, 0xa1]) {
   bytes.set(magic);
   return new File([bytes], 'sample.pcap', { type: 'application/vnd.tcpdump.pcap' });
 }
-function request(file, token = ENV.AI_GATE_TOKEN) {
+function request(file) {
   const form = new FormData();
   form.set('pcap', file);
   form.set('summary', JSON.stringify(summary));
+  form.set('cf-turnstile-response', 'valid-turnstile-token');
   return new Request('https://worker.example/analyze', {
-    method: 'POST', headers: { Origin: ORIGIN, 'X-AI-Gate': token }, body: form,
+    method: 'POST', headers: { Origin: ORIGIN }, body: form,
   });
 }
 
-test('requires gate token before forwarding any data', async t => {
+test('verifies Turnstile before forwarding any data', async t => {
+  const oldFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async url => {
+    calls++;
+    assert.match(String(url), /siteverify/);
+    return Response.json({ success: false });
+  };
+  t.after(() => { globalThis.fetch = oldFetch; });
+  const response = await worker.fetch(request(capture()), ENV);
+  assert.equal(response.status, 403);
+  assert.equal(calls, 1);
+});
+
+test('rejects over-limit clients before upstream requests', async t => {
   const oldFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => { calls++; throw new Error('must not call upstream'); };
   t.after(() => { globalThis.fetch = oldFetch; });
-  const response = await worker.fetch(request(capture(), 'wrong-token'), ENV);
-  assert.equal(response.status, 401);
+  const limited = { ...ENV, AI_RATE_LIMITER: { limit: async () => ({ success: false }) } };
+  const response = await worker.fetch(request(capture()), limited);
+  assert.equal(response.status, 429);
   assert.equal(calls, 0);
 });
 
-test('forwards original PCAP to OpenAI Code Interpreter, omits secret summary values and cleans temporary files', async t => {
+test('forwards the original PCAP only after Turnstile verification, omits secret summary values and cleans temporary files', async t => {
   const oldFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     calls.push({ url: String(url), init });
+    if (String(url).endsWith('/siteverify')) {
+      const values = new URLSearchParams(init.body);
+      assert.equal(values.get('secret'), ENV.TURNSTILE_SECRET);
+      assert.equal(values.get('response'), 'valid-turnstile-token');
+      return Response.json({ success: true, action: 'analyze-pcap', hostname: 'thienngo2910.github.io' });
+    }
     if (String(url).endsWith('/v1/files')) {
       const uploaded = init.body.get('file');
       assert.equal(uploaded.name, 'sample.pcap');
@@ -68,10 +94,10 @@ test('forwards original PCAP to OpenAI Code Interpreter, omits secret summary va
   const body = await response.json();
   assert.equal(body.uploaded_file, true);
   assert.match(body.analysis, /frame 1/);
-  assert.deepEqual(calls.map(call => call.init.method || 'POST'), ['POST', 'POST', 'DELETE', 'DELETE']);
+  assert.deepEqual(calls.map(call => String(call.url).endsWith('/siteverify') ? 'verify' : (call.init.method || 'POST')), ['verify', 'POST', 'POST', 'DELETE', 'DELETE']);
 });
 
-test('rejects non-PCAP bytes before calling OpenAI', async t => {
+test('rejects a failed signature before siteverify or OpenAI', async t => {
   const oldFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => { calls++; throw new Error('must not call upstream'); };
