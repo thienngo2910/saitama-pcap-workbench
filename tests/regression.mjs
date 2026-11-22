@@ -299,3 +299,24 @@ const tlsPlan = buildPlan('questions',[],[],[],[{app:'TLS'}],[]);
 assert.equal(tlsPlan.tlsPackets,1);
 
 console.log('PASS: timeline ordering/redaction, guided workflow, end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+
+
+// Case notes are isolated per capture hash and safely stored as local JSON.
+const notesCode = sliceBetween('function getNotesStorage(){', 'function investigationPlan(){');
+const notes = new Function(notesCode + '; return {caseNotesStorageKey,readStoredCaseNotes,writeStoredCaseNotes}')();
+const notesKeyA = notes.caseNotesStorageKey('sha256-a', 'one.pcap');
+const notesKeyB = notes.caseNotesStorageKey('sha256-b', 'one.pcap');
+assert.notEqual(notesKeyA, notesKeyB, 'notes for different capture hashes are isolated');
+assert.equal(notes.caseNotesStorageKey('', 'one.pcap'), notes.caseNotesStorageKey('', 'one.pcap'));
+assert.notEqual(notes.caseNotesStorageKey('', 'one.pcap'), notes.caseNotesStorageKey('', 'two.pcap'));
+const memoryStorage = new Map();
+const storage = {
+  getItem: key => memoryStorage.get(key) ?? null,
+  setItem: (key, value) => memoryStorage.set(key, value),
+};
+assert.equal(notes.writeStoredCaseNotes(storage, notesKeyA, 'Investigate suspicious DNS', '2026-11-22T10:00:00.000Z'), true);
+assert.deepEqual(notes.readStoredCaseNotes(storage, notesKeyA), {text:'Investigate suspicious DNS', updatedAt:'2026-11-22T10:00:00.000Z'});
+assert.deepEqual(notes.readStoredCaseNotes(storage, notesKeyB), {text:'', updatedAt:''});
+assert.deepEqual(notes.readStoredCaseNotes({getItem(){return '{bad json'}}, notesKeyA), {text:'', updatedAt:''});
+assert.equal(notes.writeStoredCaseNotes({setItem(){throw Error('quota')}}, notesKeyA, 'x', 'now'), false);
+console.log('PASS case notes storage, isolation, and failure handling');
