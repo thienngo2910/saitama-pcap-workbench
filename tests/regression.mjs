@@ -127,4 +127,9 @@ assert.equal(complete6[0].raw[20], 17);
 assert.deepEqual([...complete6[0].raw.slice(54)], Array.from({ length: 24 }, (_, i) => i));
 assert.equal(reassembleIp6([first6])[0].proto, 'IPv6 fragment');
 
-console.log('PASS: syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+
+const shaCode = sliceBetween('async function sha256Hex(data){', 'function makeReport(){');
+const sha256Hex = new Function(shaCode + '; return sha256Hex')();
+assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+
+console.log('PASS: SHA-256, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
