@@ -320,3 +320,21 @@ assert.deepEqual(notes.readStoredCaseNotes(storage, notesKeyB), {text:'', update
 assert.deepEqual(notes.readStoredCaseNotes({getItem(){return '{bad json'}}, notesKeyA), {text:'', updatedAt:''});
 assert.equal(notes.writeStoredCaseNotes({setItem(){throw Error('quota')}}, notesKeyA, 'x', 'now'), false);
 console.log('PASS case notes storage, isolation, and failure handling');
+
+
+// Correlate repeated alert evidence by shared IPv4, without treating correlation as proof.
+const correlationCode = sliceBetween('function correlateFindings(){', 'function incidentCorrelationsHtml(){');
+const correlate = new Function('findings', correlationCode + '; return correlateFindings')( [
+  {severity:'medium', title:'DNS tunnel candidate', ref:'DNS example.test · packets 2, 3', desc:'client 10.1.2.3 queried 198.51.100.20'},
+  {severity:'high', title:'Possible beacon', ref:'Packets 9, 11', desc:'Outbound 10.1.2.3 → 203.0.113.9'},
+  {severity:'low', title:'Unrelated event', ref:'Packet 18', desc:'Host 10.2.3.4 contacted 192.0.2.8'},
+  {severity:'high', title:'Bogus address event', ref:'Packet 22', desc:'255.999.1.1 and 127.0.0.1'},
+])();
+assert.equal(correlate.length, 1, 'only IPs shared by multiple alerts are grouped');
+assert.equal(correlate[0].ip, '10.1.2.3');
+assert.equal(correlate[0].items.length, 2);
+assert.equal(correlate[0].severity, 'high', 'cluster priority follows its strongest alert');
+assert.ok(html.includes('mối liên hệ thống kê, không tự chứng minh'), 'UI states correlation limits');
+assert.ok(html.includes("$('#v-findings').onclick"), 'correlation control is delegated from its containing view');
+assert.ok(html.includes("value='ip:'"), 'correlation action pivots packet search');
+console.log('PASS shared-IP correlation, priority, filtering, and caveat');
