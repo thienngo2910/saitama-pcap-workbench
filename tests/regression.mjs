@@ -52,17 +52,17 @@ const extractHttp = new Function('joinBytes', httpCode + '; return extractHttpOb
 const body1 = 'A'.repeat(70);
 const body2 = 'B'.repeat(80);
 const stream = byteText(
-  'HTTP/1.1 200 OK\\r\\nContent-Length: 70\\r\\nContent-Disposition: attachment; filename=one.bin\\r\\n\\r\\n' +
+  'HTTP/1.1 200 OK\r\nContent-Length: 70\r\nContent-Disposition: attachment; filename=one.bin\r\n\r\n' +
   body1 +
-  'HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n50\\r\\n' +
-  body2 + '\\r\\n0\\r\\n\\r\\n'
+  'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n50\r\n' +
+  body2 + '\r\n0\r\n\r\n'
 );
 const objects = extractHttp(stream);
 assert.equal(objects.length, 2);
 assert.equal(objects[0].name, 'one.bin');
 assert.equal(objects[0].body.length, 70);
 assert.equal(objects[1].body.length, 80);
-assert.equal(extractHttp(byteText('HTTP/1.1 200 OK\\r\\nContent-Length: 500\\r\\n\\r\\nshort')).length, 0);
+assert.equal(extractHttp(byteText('HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\nshort')).length, 0);
 
 // IPv4 fragment assembly using reversed arrival order and incomplete datagram.
 const ipCode = sliceBetween('function reassembleIpv4Fragments(list){', 'function ascii(d){');
