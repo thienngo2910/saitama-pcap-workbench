@@ -4,7 +4,7 @@ Browser based PCAP and PCAPNG triage for the Saitama network forensics exercise.
 
 ## Use
 
-Open `index.html` in a modern browser and choose a `.pcap` or `.pcapng` file. The capture is parsed locally in the browser by default. The optional AI panel uploads the entire capture only after the user passes Cloudflare Turnstile, checks the per-capture consent box, and clicks the AI button. The Worker forwards the raw capture to OpenAI Files and Code Interpreter; PCAP payloads may contain credentials or private data. The app's metadata summary omits credential values and case notes, but the raw file is not redacted. AI upload is limited to 25 MiB. Use the tabs to review packets, TCP/UDP conversations, DNS queries, heuristic findings, and the generated report. Export packet CSV or the complete analysis JSON from the overview.
+Open `index.html` in a modern browser and choose a `.pcap` or `.pcapng` file. The capture is parsed locally in the browser; the page does not upload it or send it to an analysis API. Use the tabs to review packets, TCP/UDP conversations, DNS queries, heuristic findings, and the generated report. Export packet CSV or the complete analysis JSON from the overview.
 
 ## Deployment
 
@@ -12,23 +12,7 @@ This static page is published at:
 
 `https://thienngo2910.github.io/saitama-pcap-workbench/`
 
-The source is in the root of the `thienngo2910/saitama-pcap-workbench` repository.
-
-## Optional OpenAI analysis
-
-The browser app is static, so it never contains an OpenAI API key. Deploy the Worker in `worker/` and set secrets in Cloudflare:
-
-```powershell
-cd worker
-npx wrangler login
-npx wrangler secret put OPENAI_API_KEY --config wrangler.toml
-npx wrangler secret put TURNSTILE_SECRET --config wrangler.toml
-npx wrangler deploy --config wrangler.toml
-```
-
-Create a Cloudflare Turnstile widget for `thienngo2910.github.io` in Managed mode. Store its secret as `TURNSTILE_SECRET` on the Worker; the site key is public and embedded in `index.html`. The app loads the widget when an analyzed capture is available, so users do not enter a gate token. The Worker verifies the single-use Turnstile token, expected action and hostname before sending the PCAP to OpenAI. A Cloudflare Worker rate-limit binding also allows up to five requests per minute per client IP within each Cloudflare location; Cloudflare documents this limiter as approximate, so it complements bot checks rather than imposing a strict global spend cap.\n\nThe Workbench pre-fills its deployed Worker URL. Enter the same gate token in the setup panel before loading a capture. The Worker accepts requests only from the published GitHub Pages origin, validates PCAP/PCAPNG magic, and rejects files larger than 25 MiB. It uploads the original capture to OpenAI so Code Interpreter can inspect it in a Python sandbox. It asks the model to follow the Network Forensics flow, cite packet/frame evidence, treat capture text as untrusted data, and redact credential values in its response. The Worker requests deletion of the temporary OpenAI file and container after analysis; cleanup is best effort, and OpenAI retention/monitoring policies still apply. OpenAI API and Code Interpreter usage may incur charges. Review your provider settings and capture contents before enabling upload.
-
-Worker tests run with `node --test tests/ai-worker.test.mjs`.
+The source lives in the `saitama-pcap-workbench/` directory of the existing `thienngo2910.github.io` GitHub Pages repository. The rest of that site is left untouched.
 
 ## Current analysis coverage
 
