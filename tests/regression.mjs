@@ -207,6 +207,19 @@ const parsedIcmp6=frameParser(icmp6Frame,1,21);
 assert.equal(parsedIcmp6.proto,'ICMPv6');
 assert.deepEqual(parsedIcmp6.icmp,{type:128,code:0,id:0xabcd,seq:7});
 assert.deepEqual([...parsedIcmp6.payload],[65,66,67]);
+const hopIcmp6Frame=new Uint8Array(14+40+8+8+3);hopIcmp6Frame[12]=0x86;hopIcmp6Frame[13]=0xdd;hopIcmp6Frame[14]=0x60;hopIcmp6Frame[19]=19;hopIcmp6Frame[20]=0;hopIcmp6Frame[54]=58;hopIcmp6Frame[55]=0;hopIcmp6Frame[62]=128;hopIcmp6Frame[66]=0x12;hopIcmp6Frame[67]=0x34;hopIcmp6Frame[69]=8;hopIcmp6Frame.set([68,69,70],70);
+const parsedHopIcmp6=frameParser(hopIcmp6Frame,1,22);
+assert.equal(parsedHopIcmp6.proto,'ICMPv6','Hop-by-Hop extension header is traversed');
+assert.deepEqual(parsedHopIcmp6.icmp,{type:128,code:0,id:0x1234,seq:8});
+assert.deepEqual([...parsedHopIcmp6.payload],[68,69,70]);
+const hopTcp6Frame=new Uint8Array(14+40+8+20+3);hopTcp6Frame[12]=0x86;hopTcp6Frame[13]=0xdd;hopTcp6Frame[14]=0x60;hopTcp6Frame[19]=31;hopTcp6Frame[20]=0;hopTcp6Frame[54]=6;hopTcp6Frame[55]=0;hopTcp6Frame[62]=0x01;hopTcp6Frame[63]=0xbb;hopTcp6Frame[64]=0x12;hopTcp6Frame[65]=0x34;hopTcp6Frame[74]=0x50;hopTcp6Frame.set([88,89,90],82);
+const parsedHopTcp6=frameParser(hopTcp6Frame,1,23);
+assert.equal(parsedHopTcp6.proto,'TCP','TCP after Hop-by-Hop is decoded');
+assert.equal(parsedHopTcp6.sport,443);
+assert.equal(parsedHopTcp6.dport,0x1234);
+assert.deepEqual([...parsedHopTcp6.payload],[88,89,90]);
+
+
 console.log('PASS ICMPv4 and ICMPv6 echo header parsing');
 console.log('PASS ICMP echo filtering, flow isolation, ordering, retransmissions, gaps, and conflicts');
 console.log('PASS TCP gap-safe candidate ranges');
