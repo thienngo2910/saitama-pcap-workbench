@@ -169,6 +169,46 @@ assert.deepEqual(splitResult.map(x=>[x.start,x.end]),[[0,2],[4,6]],'TCP gaps spl
 assert.deepEqual(splitResult.map(x=>[...x.bytes]),[[65,66],[67,68]],'synthetic zero padding never enters recovered ranges');
 const unbroken=splitTcpRanges({bytes:Uint8Array.of(1,2,3),present:Uint8Array.of(1,1,1)},1);
 assert.equal(unbroken.length,1);
+
+const collectIcmpGroups=new Function('list',sliceBetween('function collectIcmpEchoGroups(list){','function splitTcpPresentRanges(stream,minLength=64){')+'; return collectIcmpEchoGroups(list)');
+const assembleIcmp=new Function('joinBytes',sliceBetween('function assembleIcmpPayloads(parts){','function splitTcpPresentRanges(stream,minLength=64){')+'; return assembleIcmpPayloads')(joinBytes);
+const icmpGroups=collectIcmpGroups([
+  {proto:'ICMP',icmp:{type:8,id:7,seq:2},src:'10.0.0.1',dst:'10.0.0.2',payload:byteText('B'),no:2},
+  {proto:'ICMP',icmp:{type:8,id:7,seq:1},src:'10.0.0.1',dst:'10.0.0.2',payload:byteText('A'),no:1},
+  {proto:'ICMP',icmp:{type:8,id:7,seq:1},src:'10.0.0.1',dst:'10.0.0.2',payload:byteText('A'),no:3},
+  {proto:'ICMP',icmp:{type:0,id:7,seq:1},src:'10.0.0.2',dst:'10.0.0.1',payload:byteText('R'),no:4},
+  {proto:'ICMPv6',icmp:{type:128,id:7,seq:1},src:'2001:db8::1',dst:'2001:db8::2',payload:byteText('V'),no:5},
+  {proto:'ICMP',icmp:{type:3,id:null,seq:null},src:'10.0.0.2',dst:'10.0.0.1',payload:byteText('E'),no:6},
+]);
+assert.equal(icmpGroups.size,3,'echo request/reply, IPv6, and unrelated ICMP messages stay separated');
+const icmpReq=[...icmpGroups.values()].find(x=>x.type===8);
+const icmpAssembled=assembleIcmp(icmpReq.parts);
+assert.equal(new TextDecoder().decode(icmpAssembled.bytes),'AB','ICMP payloads follow sequence order despite packet reordering');
+assert.equal(icmpAssembled.missing,false);
+assert.deepEqual(icmpAssembled.packets,[2,1,3],'identical retransmissions are deduplicated while retaining packet refs');
+const icmpMissing=assembleIcmp([{seq:10,data:byteText('A'),no:1},{seq:12,data:byteText('C'),no:2}]);
+assert.equal(icmpMissing.missing,true,'ICMP sequence gaps are reported');
+const icmpConflict=assembleIcmp([{seq:1,data:byteText('A'),no:1},{seq:1,data:byteText('X'),no:2}]);
+assert.equal(icmpConflict.conflictSequences,1,'conflicting same-sequence ICMP payloads are surfaced');
+
+const frameParser=new Function('u16','u32','ip4','ip6','macAddr','parseDns','ascii',sliceBetween('function parseFrame(d,link,n){','function reassembleIpv4Fragments(list){')+'; return parseFrame')(
+  (d,o)=>d[o]*256+d[o+1],
+  (d,o)=>(d[o]*0x1000000+d[o+1]*0x10000+d[o+2]*0x100+d[o+3])>>>0,
+  (d,o)=>[d[o],d[o+1],d[o+2],d[o+3]].join('.'),
+  (d,o)=>Array.from(d.slice(o,o+16)).reduce((s,v,i)=>s+(i%2===0?(i?':':'')+v.toString(16):v.toString(16).padStart(2,'0')),''),
+  ()=>'',()=>null,()=>''
+);
+const icmp4Frame=new Uint8Array(14+20+8+3);icmp4Frame[12]=8;icmp4Frame[13]=0;icmp4Frame[14]=0x45;icmp4Frame[16]=0;icmp4Frame[17]=31;icmp4Frame[23]=1;icmp4Frame.set([10,0,0,1],26);icmp4Frame.set([10,0,0,2],30);icmp4Frame[34]=8;icmp4Frame[38]=0x12;icmp4Frame[39]=0x34;icmp4Frame[41]=9;icmp4Frame.set([65,66,67],42);
+const parsedIcmp4=frameParser(icmp4Frame,1,20);
+assert.deepEqual(parsedIcmp4.icmp,{type:8,code:0,id:0x1234,seq:9});
+assert.deepEqual([...parsedIcmp4.payload],[65,66,67]);
+const icmp6Frame=new Uint8Array(14+40+8+3);icmp6Frame[12]=0x86;icmp6Frame[13]=0xdd;icmp6Frame[14]=0x60;icmp6Frame[18]=0;icmp6Frame[19]=11;icmp6Frame[20]=58;icmp6Frame[54]=128;icmp6Frame[58]=0xab;icmp6Frame[59]=0xcd;icmp6Frame[61]=7;icmp6Frame.set([65,66,67],62);
+const parsedIcmp6=frameParser(icmp6Frame,1,21);
+assert.equal(parsedIcmp6.proto,'ICMPv6');
+assert.deepEqual(parsedIcmp6.icmp,{type:128,code:0,id:0xabcd,seq:7});
+assert.deepEqual([...parsedIcmp6.payload],[65,66,67]);
+console.log('PASS ICMPv4 and ICMPv6 echo header parsing');
+console.log('PASS ICMP echo filtering, flow isolation, ordering, retransmissions, gaps, and conflicts');
 console.log('PASS TCP gap-safe candidate ranges');
 console.log('PASS TFTP per-flow reconstruction, out-of-order DATA, retransmissions, gaps, conflicts, and wrap ordering');
 console.log('PASS recovered-file integrity markers and conservative completeness labels');
