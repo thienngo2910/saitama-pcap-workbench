@@ -266,6 +266,8 @@ const fullPreview=fullTextCode({name:'sample.ps1',ext:'txt',size:longScript.leng
 assert.ok(fullPreview.includes('&lt;script&gt;'),'recovered scripts are escaped instead of executed as HTML');
 assert.ok(fullPreview.includes('END_OF_SCRIPT'),'full text viewer shows content beyond the initial preview');
 assert.ok(fullPreview.includes('<details'),'full text opens on demand');
+
+
 console.log('PASS static recovered-file summaries, script text viewer, and HTML escaping');
 console.log('PASS TDS packet framing, 67-part Base64 PE recovery, ApacheBench naming, and UTF-16LE values');
 console.log('PASS ICMPv4 and ICMPv6 echo header parsing');
@@ -415,6 +417,36 @@ assert.match(overlapConflict6.info,/chồng lấn mâu thuẫn/);
 
 
 const tcpHelper = sliceBetween('function reassembleTcpSegments(segments){', 'function buildRecoveries(){');
+
+const followBuildCode=sliceBetween('function buildFollowStreamData(flow,allPackets){','function formatFollowBytes(bytes,mode){');
+const followBuilder=new Function('flow','allPackets','reassembleTcpSegments',followBuildCode+'; return buildFollowStreamData(flow,allPackets)');
+const followReassemble=new Function(tcpHelper+'; return reassembleTcpSegments')();
+const flowRows=[
+  {no:0,proto:'TCP',src:'10.0.0.1',sport:40000,dst:'10.0.0.2',dport:80,tcpSeq:99,tcpFlags:2,payload:new Uint8Array()},
+  {no:1,proto:'TCP',src:'10.0.0.2',sport:80,dst:'10.0.0.1',dport:40000,tcpSeq:700,tcpFlags:18,payload:new Uint8Array()},
+  {no:2,proto:'TCP',src:'10.0.0.1',sport:40000,dst:'10.0.0.2',dport:80,tcpSeq:100,tcpFlags:24,payload:byteText('GET ')},
+  {no:3,proto:'TCP',src:'10.0.0.2',sport:80,dst:'10.0.0.1',dport:40000,tcpSeq:700,tcpFlags:24,payload:byteText('HTTP')},
+  {no:4,proto:'TCP',src:'10.0.0.1',sport:40000,dst:'10.0.0.2',dport:80,tcpSeq:104,tcpFlags:24,payload:byteText('/x')},
+  {no:5,proto:'TCP',src:'10.0.0.9',sport:40000,dst:'10.0.0.2',dport:80,tcpSeq:1,tcpFlags:24,payload:byteText('unrelated')}
+];
+const followed=followBuilder({src:'10.0.0.2',sport:80,dst:'10.0.0.1',dport:40000,proto:'TCP'},flowRows,followReassemble);
+assert.equal(new TextDecoder().decode(followed.forward.bytes),'GET /x','SYN determines client direction even when conversation row starts from server side');
+assert.equal(new TextDecoder().decode(followed.reverse.bytes),'HTTP');
+assert.equal(followed.client.ip,'10.0.0.1');
+assert.equal(followed.server.ip,'10.0.0.2');
+assert.equal(followed.forwardLabel,'Client → Server');
+assert.equal(followed.forwardPackets.length,3,'client SYN and payload packets are included');
+assert.ok(followed.forwardPackets.every(p=>p.src==='10.0.0.1'),'unrelated flows are excluded');
+assert.ok(html.includes('<dialog id="streamDialog"'),'Follow Stream opens in an in-page dialog');
+assert.ok(html.includes('data-follow-flow='),'TCP conversation rows expose the open-stream action');
+assert.ok(html.includes('streamFormat'),'stream text/hex view control is present');
+console.log('PASS bidirectional TCP Follow Stream, SYN role detection, flow isolation, and in-page viewer');
+const followFormatCode=sliceBetween('function formatFollowBytes(bytes,mode){','function updateFollowDialog(){');
+const followFormat=new Function('bytes','mode',followFormatCode+'; return formatFollowBytes(bytes,mode)');
+assert.equal(followFormat(byteText('hello\nworld'),'text'),'hello\nworld');
+assert.match(followFormat(byteText('AB'),'hex'),/41 42/);
+
+
 const sensitiveCode = sliceBetween('function collectSensitiveData(){', 'function peakTimeWindow(events,seconds,minCount){');
 const collectFactory = new Function('packets', 'atob', 'TextDecoder', tcpHelper + sensitiveCode + '; return collectSensitiveData');
 const testPackets = rows => rows.map(([no, seq, data]) => ({
