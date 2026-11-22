@@ -199,4 +199,61 @@ const shaCode = sliceBetween('async function sha256Hex(data){', 'function makeRe
 const sha256Hex = new Function(shaCode + '; return sha256Hex')();
 assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
-console.log('PASS: SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+
+const analyzeCode = sliceBetween('function analyze(){', 'function signature(b){');
+const analysisFactory = new Function(
+  'packets','fmtBytes','isPrivate','peakTimeWindow','shannonEntropy','rapidMacSwitch',
+  'synCompletionRatio','buildRecoveries','collectSensitiveData',
+  'let conversations=[],domains=[],findings=[],artifacts=[],recoveries=[],sensitiveData=[];' +
+  analyzeCode + '; return () => { analyze(); return {findings,domains,conversations}; }'
+);
+const runAnalysis = packets => analysisFactory(
+  packets, value => String(value),
+  ip => /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/.test(ip),
+  peakTimeWindow, shannonEntropy, rapidMacSwitch, synCompletionRatio,
+  () => [], () => []
+)();
+const packet = (no, fields) => ({
+  no, time: no, src: '10.0.0.1', dst: '8.8.8.8', sport: 40000+no, dport: 443,
+  proto: 'TCP', tcpFlags: 0, tcpSeq: no*100, payload: new Uint8Array(),
+  length: 100, app: '', dns: [], ...fields
+});
+const portBurst = Array.from({length:24},(_,i)=>packet(i+1,{time:i/2,dport:1000+i,tcpFlags:2}));
+assert(runAnalysis(portBurst).findings.some(f => f.title.includes('quét nhiều cổng')));
+const portDrip = Array.from({length:24},(_,i)=>packet(i+1,{time:i*20,dport:1000+i,tcpFlags:2}));
+assert(!runAnalysis(portDrip).findings.some(f => f.title.includes('quét nhiều cổng')));
+const synBurst = [];
+for(let i=0;i<100;i++) synBurst.push(packet(i+1,{
+  time:i/20,src:'10.1.'+Math.floor(i/250)+'.'+(i%250+1),sport:40000+i,dst:'10.0.0.9',
+  dport:80,tcpFlags:2
+}));
+for(let i=0;i<10;i++) synBurst.push(packet(101+i,{
+  time:1+i/20,src:'10.0.0.9',sport:80,dst:'10.1.'+Math.floor(i/250)+'.'+(i%250+1),
+  dport:40000+i,tcpFlags:18
+}));
+assert(runAnalysis(synBurst).findings.some(f => f.title.includes('SYN flood')));
+const tunnelPackets=[];
+let seed=123456;
+for(let i=0;i<14;i++){
+  let label='';
+  for(let j=0;j<24;j++){seed=(seed*1664525+1013904223)>>>0;label+='abcdefghijklmnopqrstuvwxyz234567'[seed&31]}
+  tunnelPackets.push(packet(i+1,{proto:'UDP',sport:53000,dport:53,time:i*2,tcpFlags:null,
+    dns:[{name:label+'.example.com',type:'A',response:false,record:false}]}));
+}
+assert(runAnalysis(tunnelPackets).findings.some(f => f.title.includes('DNS')&&f.title.includes('tunnel')));
+const arpRapid=[
+  packet(1,{proto:'ARP',time:1,arp:{srcIp:'10.0.0.5',srcMac:'00:11'} }),
+  packet(2,{proto:'ARP',time:2,arp:{srcIp:'10.0.0.5',srcMac:'00:22'} })
+];
+assert(runAnalysis(arpRapid).findings.some(f => f.title.includes('đổi MAC')));
+const arpSlow=[
+  packet(1,{proto:'ARP',time:1,arp:{srcIp:'10.0.0.5',srcMac:'00:11'} }),
+  packet(2,{proto:'ARP',time:120,arp:{srcIp:'10.0.0.5',srcMac:'00:22'} })
+];
+assert(!runAnalysis(arpSlow).findings.some(f => f.title.includes('đổi MAC')));
+const exfilBurst=Array.from({length:10},(_,i)=>packet(i+1,{
+  time:i*2,src:'10.0.0.4',dst:'1.1.1.1',length:260000
+}));
+assert(runAnalysis(exfilBurst).findings.some(f => f.title.includes('outbound lớn')));
+
+console.log('PASS: end-to-end detection rules, SYN tuple matching, TCP secret reassembly, SHA-256, sliding windows, DNS entropy and ARP timing, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
