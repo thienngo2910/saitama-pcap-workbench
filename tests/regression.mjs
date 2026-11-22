@@ -129,6 +129,26 @@ assert.equal(reassembleIp6([first6])[0].proto, 'IPv6 fragment');
 
 
 
+
+const tcpHelper = sliceBetween('function reassembleTcpSegments(segments){', 'function buildRecoveries(){');
+const sensitiveCode = sliceBetween('function collectSensitiveData(){', 'function peakTimeWindow(events,seconds,minCount){');
+const collectFactory = new Function('packets', 'atob', 'TextDecoder', tcpHelper + sensitiveCode + '; return collectSensitiveData');
+const testPackets = rows => rows.map(([no, seq, data]) => ({
+  no, seq, proto: 'TCP', src: '10.0.0.1', sport: 12345, dst: '10.0.0.2', dport: 21,
+  tcpSeq: seq, tcpFlags: 0, payload: byteText(data)
+}));
+let secrets = collectFactory(testPackets([
+  [2, 108, 'ce\\r\\nPASS secret42\\r\\n'],
+  [1, 100, 'USER ali']
+]), atob, TextDecoder)();
+assert(secrets.some(item => item.type === 'Tên đăng nhập' && item.value === 'alice'));
+assert(secrets.some(item => item.type === 'Mật khẩu' && item.value === 'secret42'));
+secrets = collectFactory(testPackets([
+  [1, 100, 'USER alice\\r\\nPASS sec'],
+  [2, 124, 'ret42\\r\\n']
+]), atob, TextDecoder)();
+assert(!secrets.some(item => item.type === 'Mật khẩu'));
+
 const windowCode = sliceBetween('function peakTimeWindow(events,seconds,minCount){', 'function analyze(){');
 const peakTimeWindow = new Function(windowCode + '; return peakTimeWindow')();
 const burst = peakTimeWindow([
@@ -147,4 +167,4 @@ const shaCode = sliceBetween('async function sha256Hex(data){', 'function makeRe
 const sha256Hex = new Function(shaCode + '; return sha256Hex')();
 assert.equal(await sha256Hex(new TextEncoder().encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 
-console.log('PASS: SHA-256, sliding windows, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
+console.log('PASS: TCP-reassembled secret collection with gaps, SHA-256, sliding windows, syntax, TCP reorder/retransmit/gap/conflict, multiple HTTP responses, IPv4 and IPv6 complete/incomplete fragments');
